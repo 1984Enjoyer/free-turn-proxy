@@ -1,5 +1,12 @@
 # Changelog
 
+## [4.0.3](https://github.com/hackdiaz-dev/free-turn-proxy/compare/v4.0.2...v4.0.3) (2026-10-10)
+
+
+### Bug Fixes
+
+* **deps:** bump Go to 1.26.9 and x/net to v0.60.0 ([cc71a1a](https://github.com/hackdiaz-dev/free-turn-proxy/commit/cc71a1a938aa757b4c8e40901e3ae073f9bd19b5))
+
 ## [4.0.2](https://github.com/hackdiaz-dev/free-turn-proxy/compare/v4.0.1...v4.0.2) (2026-10-10)
 
 
