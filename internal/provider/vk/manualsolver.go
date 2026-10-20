@@ -29,3 +29,18 @@ func ProxyManualSolver(show func(url string), hide func()) ManualSolverFunc {
 		return manualcaptcha.SolveViaProxyWithPresenter(ctx, e.RedirectURI, dialer, profile, show)
 	}
 }
+
+// ProxyPowCapture exposes the in-app browser to the automatic PoW capture flow.
+func ProxyPowCapture(show func(url string), hide func()) PowCaptureFunc {
+	return func(ctx context.Context, redirectURI string, dialer net.Dialer, profile browserprofile.Profile) (string, error) {
+		if redirectURI == "" {
+			return "", fmt.Errorf("browser pow capture: no redirect_uri")
+		}
+		proxyManualMu.Lock()
+		defer proxyManualMu.Unlock()
+		if hide != nil {
+			defer hide()
+		}
+		return manualcaptcha.CapturePowViaProxyWithPresenter(ctx, redirectURI, dialer, profile, show)
+	}
+}

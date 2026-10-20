@@ -139,7 +139,7 @@ func TestPowEnvelope(t *testing.T) {
 
 	hash, nonce := solvePoW(context.Background(), "input", 1)
 	want := `{"hash":"` + hash + `","nonce":` + strconv.Itoa(nonce) +
-		`,"duration_ms":` + strconv.FormatInt(powDurationMs(nonce), 10) +
+		`,"error":"","duration_ms":` + strconv.FormatInt(powDurationMs(nonce), 10) +
 		`,"telemetry":` + goldenTelemetry + `,"tel_hash":"` + goldenTelHash + `"}`
 	if string(raw) != want {
 		t.Fatalf("envelope =\n%s\nwant\n%s", raw, want)

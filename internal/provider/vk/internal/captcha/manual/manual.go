@@ -45,8 +45,8 @@ var injectJS string
 
 // injectScriptTag: конфиг отдельной строкой (json.Marshal экранирует, включая "<"),
 // сам inject.js статичный, без плейсхолдеров.
-func injectScriptTag(localOrigin, upstreamOrigin string) string {
-	cfg, _ := json.Marshal(map[string]string{"local": localOrigin, "upstream": upstreamOrigin})
+func injectScriptTag(localOrigin, upstreamOrigin string, capturePow bool) string {
+	cfg, _ := json.Marshal(map[string]any{"local": localOrigin, "upstream": upstreamOrigin, "capturePow": capturePow})
 	return "\n<script>window.__ftpCaptcha=" + string(cfg) + ";</script>\n<script>\n" + injectJS + "</script>\n"
 }
 
@@ -308,6 +308,10 @@ func rewriteHTMLAttrsServerSide(html string, targetURL *neturl.URL) string {
 }
 
 func rewriteCaptchaHTML(html string, targetURL *neturl.URL) string {
+	return rewriteCaptchaHTMLMode(html, targetURL, false)
+}
+
+func rewriteCaptchaHTMLMode(html string, targetURL *neturl.URL, capturePow bool) string {
 	localOrigin := localCaptchaOrigin()
 	upstreamOrigin := targetOrigin(targetURL)
 
@@ -319,7 +323,7 @@ func rewriteCaptchaHTML(html string, targetURL *neturl.URL) string {
 	// сразу при парсинге HTML - раньше любых инжектированных JS-перехватов.
 	html = rewriteHTMLAttrsServerSide(html, targetURL)
 
-	script := injectScriptTag(localOrigin, upstreamOrigin)
+	script := injectScriptTag(localOrigin, upstreamOrigin, capturePow)
 
 	// Шаг 3: инжектируем клиентский скрипт как можно раньше - после <head>,
 	// чтобы XHR/fetch-перехваты были активны до любого inline <script> в <head>.
@@ -384,8 +388,12 @@ func runCaptchaServerAndWait(ctx context.Context, handler http.Handler, captchaU
 		}
 	}()
 
-	Log().Warnf("%s: ACTION REQUIRED: manual captcha solving needed", logPrefix)
-	Log().Warnf("%s: if the browser did not open, go to %s", logPrefix, localCaptchaOrigin())
+	if strings.Contains(logPrefix, "PoW capture") {
+		Log().Infof("%s: waiting for browser PoW computation", logPrefix)
+	} else {
+		Log().Warnf("%s: ACTION REQUIRED: manual captcha solving needed", logPrefix)
+		Log().Warnf("%s: if the browser did not open, go to %s", logPrefix, localCaptchaOrigin())
+	}
 
 	present(captchaURL)
 
@@ -477,7 +485,20 @@ func navSummary(req *http.Request) string {
 // переписывая абсолютные URL так, чтобы браузер всё время оставался на
 // 127.0.0.1:8765; возвращает результирующий auth-токен.
 func SolveViaProxy(ctx context.Context, redirectURI string, dialer net.Dialer, profile browserprofile.Profile) (string, error) {
-	return solveViaProxy(ctx, redirectURI, dialer, profile, openBrowser)
+	return solveViaProxy(ctx, redirectURI, dialer, profile, openBrowser, false)
+}
+
+// CapturePowViaProxy opens the real captcha page and returns its browser-generated PoW envelope.
+func CapturePowViaProxy(ctx context.Context, redirectURI string, dialer net.Dialer, profile browserprofile.Profile) (string, error) {
+	return solveViaProxy(ctx, redirectURI, dialer, profile, openBrowser, true)
+}
+
+// CapturePowViaProxyWithPresenter reports the local page to a host application.
+func CapturePowViaProxyWithPresenter(ctx context.Context, redirectURI string, dialer net.Dialer, profile browserprofile.Profile, present func(string)) (string, error) {
+	if present == nil {
+		present = func(string) {}
+	}
+	return solveViaProxy(ctx, redirectURI, dialer, profile, present, true)
 }
 
 // SolveViaProxyWithPresenter передаёт URL вызывающему после запуска сервера.
@@ -485,10 +506,10 @@ func SolveViaProxyWithPresenter(ctx context.Context, redirectURI string, dialer 
 	if present == nil {
 		present = func(string) {}
 	}
-	return solveViaProxy(ctx, redirectURI, dialer, profile, present)
+	return solveViaProxy(ctx, redirectURI, dialer, profile, present, false)
 }
 
-func solveViaProxy(ctx context.Context, redirectURI string, dialer net.Dialer, profile browserprofile.Profile, present func(string)) (string, error) {
+func solveViaProxy(ctx context.Context, redirectURI string, dialer net.Dialer, profile browserprofile.Profile, present func(string), capturePow bool) (string, error) {
 	keyCh := make(chan string, 1)
 
 	targetURL, err := neturl.Parse(redirectURI)
@@ -582,7 +603,7 @@ func solveViaProxy(ctx context.Context, redirectURI string, dialer net.Dialer, p
 					res.Header.Del(headerName)
 				}
 
-				bodyBytes = []byte(rewriteCaptchaHTML(string(bodyBytes), targetURL))
+				bodyBytes = []byte(rewriteCaptchaHTMLMode(string(bodyBytes), targetURL, capturePow))
 			}
 
 			// Тело отдаём разжатым независимо от типа: для JSON-ответа check
@@ -608,6 +629,17 @@ func solveViaProxy(ctx context.Context, redirectURI string, dialer net.Dialer, p
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Content-Type", "text/plain")
 		_, _ = fmt.Fprint(w, "ok")
+	})
+	mux.HandleFunc("/local-captcha-pow", func(w http.ResponseWriter, r *http.Request) {
+		pow := r.FormValue("pow")
+		if pow == "" || captcha.DecodePowEnvelope(pow) == "" {
+			http.Error(w, "invalid pow", http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Content-Type", "text/plain")
+		_, _ = fmt.Fprint(w, "captured")
+		notifyKey(keyCh, pow)
 	})
 
 	mux.HandleFunc("/generic_proxy", func(w http.ResponseWriter, r *http.Request) {
@@ -675,7 +707,11 @@ func solveViaProxy(ctx context.Context, redirectURI string, dialer net.Dialer, p
 		proxy.ServeHTTP(w, r)
 	})
 
-	return runCaptchaServerAndWait(ctx, mux, localCaptchaURLForTarget(targetURL), keyCh, "proxy HTTP server error", present)
+	logPrefix := "proxy HTTP server error"
+	if capturePow {
+		logPrefix = "captcha PoW capture server error"
+	}
+	return runCaptchaServerAndWait(ctx, mux, localCaptchaURLForTarget(targetURL), keyCh, logPrefix, present)
 }
 
 func openBrowser(url string) {
