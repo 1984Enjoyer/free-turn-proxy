@@ -41,7 +41,7 @@ func defaultRaw() raw {
 		Provider:        DefaultProvider,
 		StreamsPerCred:  DefaultStreamsPerCred,
 		AutoCaptcha:     true,
-		AdvancedCaptcha: true,
+		AdvancedCaptcha: false,
 		Transport:       DefaultTransport,
 		Mode:            DefaultMode,
 		ObfProfile:      string(DefaultObfProfile),
