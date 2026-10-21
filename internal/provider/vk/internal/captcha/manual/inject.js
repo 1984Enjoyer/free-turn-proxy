@@ -4,12 +4,12 @@
     const { local: LOCAL, upstream: UPSTREAM } = window.__ftpCaptcha ?? {};
     const PROXY = '/generic_proxy?proxy_url=';
     const RESULT = '/local-captcha-result';
-    const POW_RESULT = '/local-captcha-pow';
+    const POW_RESULT = window.__ftpCaptcha?.powPath;
     const CHECK = 'captchaNotRobot.check';
 
     // In auto mode, use the actual browser's computed PoW envelope. This runs
     // before VK's inline PoW script, so its final assignment is observable.
-    if (window.__ftpCaptcha?.capturePow) {
+    if (window.__ftpCaptcha?.capturePow && POW_RESULT) {
         let powValue = window.captchaPowResult;
         const capturePow = (value) => {
             if (typeof value !== 'string') return;

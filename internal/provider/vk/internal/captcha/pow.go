@@ -86,6 +86,9 @@ func (s *captchaSession) powEnvelope(p powParams) (string, error) {
 }
 
 func validateBrowserPow(value string, p powParams) (string, error) {
+	if p.Difficulty <= 0 || p.Difficulty > sha256.Size*2 {
+		return "", fmt.Errorf("invalid browser pow difficulty %d", p.Difficulty)
+	}
 	if !strings.HasPrefix(value, p.Prefix) {
 		return "", errors.New("browser pow prefix does not match captcha page")
 	}
@@ -103,7 +106,8 @@ func validateBrowserPow(value string, p powParams) (string, error) {
 	if hex.EncodeToString(sum[:]) != result.Hash {
 		return "", errors.New("browser pow does not match captcha page input")
 	}
-	if len(result.Telemetry) == 0 {
+	var telemetryObject map[string]json.RawMessage
+	if len(result.Telemetry) == 0 || json.Unmarshal(result.Telemetry, &telemetryObject) != nil || telemetryObject == nil {
 		return "", errors.New("browser pow has no telemetry")
 	}
 	telHash, err := telemetryHash(result.Telemetry)

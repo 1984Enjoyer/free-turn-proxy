@@ -151,7 +151,6 @@ func SolveWithBrowserPow(
 	if browserPow == "" {
 		return "", errors.New("browser pow envelope is empty")
 	}
-	profile = profileFromBrowserPow(profile, browserPow)
 	return solve(ctx, captchaErr, streamID, client, profile, log, browserPow)
 }
 
@@ -227,23 +226,28 @@ func (s *captchaSession) solveOnce(captchaErr *Error) (string, error) {
 	}
 
 	// Браузер тянет подресурсы параллельно с исполнением скрипта, не после него.
+	s.logger().Debugf("[Captcha] solving pow difficulty=%d", page.Pow.Difficulty)
+	if s.browserPow != "" {
+		s.powHash, err = validateBrowserPow(s.browserPow, page.Pow)
+		if err != nil {
+			return "", err
+		}
+		s.profile = profileFromBrowserPow(s.profile, s.browserPow)
+	}
+
 	assets := parsePageAssets(html)
 	assetsDone := make(chan struct{})
 	go func() {
 		defer close(assetsDone)
 		s.loadAssets(assets)
 	}()
-	// Ранний выход не оставляет догрузку в фоне следующей попытке.
+	// Ранний выход не оставляет догрузку в фоне следующей попытки.
 	defer func() { <-assetsDone }()
-
-	s.logger().Debugf("[Captcha] solving pow difficulty=%d assets=%d", page.Pow.Difficulty, len(assets))
-	if s.browserPow != "" {
-		s.powHash, err = validateBrowserPow(s.browserPow, page.Pow)
-	} else {
+	if s.browserPow == "" {
 		s.powHash, err = s.powEnvelope(page.Pow)
-	}
-	if err != nil {
-		return "", err
+		if err != nil {
+			return "", err
+		}
 	}
 
 	s.debugInfo = page.DebugInfo
